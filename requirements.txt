@@ -1,0 +1,4 @@
+flask
+waitress
+psycopg2-binary
+reportlab
