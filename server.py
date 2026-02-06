@@ -290,122 +290,122 @@
 # postgre
 
 
-# import os
-# import sqlite3
-# import logging
-# from flask import Flask, request, jsonify, render_template
-#
-# app = Flask(__name__)
-# logging.basicConfig(level=logging.INFO)
-#
-# DB_FILE = "dashboard.db"
-#
-#
-# # ----------------------------
-# # Database helpers
-# # ----------------------------
-# def get_db():
-#     return sqlite3.connect(DB_FILE, check_same_thread=False)
-#
-#
-# def init_db():
-#     con = get_db()
-#     cur = con.cursor()
-#     cur.execute("""
-#         CREATE TABLE IF NOT EXISTS clients (
-#             uuid TEXT PRIMARY KEY,
-#             mac TEXT,
-#             hostname TEXT,
-#             timestamp TEXT,
-#             hardware TEXT,
-#             apps TEXT
-#         )
-#     """)
-#     con.commit()
-#     con.close()
-#
-#
-# # ----------------------------
-# # Routes
-# # ----------------------------
-# @app.route("/")
-# def dashboard():
-#     return render_template("dashboard.html")
-#
-#
-# @app.route("/api/report", methods=["POST"])
-# def api_report():
-#     try:
-#         data = request.get_json(force=True)
-#
-#         uuid_ = data.get("uuid")
-#         mac = data.get("mac")
-#         hostname = data.get("hostname")
-#         timestamp = data.get("timestamp")
-#         hardware = data.get("hardware")
-#         apps = data.get("apps")
-#
-#         if not uuid_:
-#             return jsonify({"status": "error", "msg": "Missing uuid"}), 400
-#
-#         con = get_db()
-#         cur = con.cursor()
-#
-#         cur.execute("""
-#             INSERT INTO clients (uuid, mac, hostname, timestamp, hardware, apps)
-#             VALUES (?, ?, ?, ?, ?, ?)
-#             ON CONFLICT(uuid) DO UPDATE SET
-#                 mac=excluded.mac,
-#                 hostname=excluded.hostname,
-#                 timestamp=excluded.timestamp,
-#                 hardware=excluded.hardware,
-#                 apps=excluded.apps
-#         """, (uuid_, mac, hostname, timestamp, hardware, apps))
-#
-#         con.commit()
-#         con.close()
-#
-#         return jsonify({"status": "ok"})
-#
-#     except Exception as e:
-#         app.logger.exception("Error in /api/report")
-#         return jsonify({"status": "error", "msg": str(e)}), 500
-#
-#
-# @app.route("/api/clients", methods=["GET"])
-# def api_clients():
-#     try:
-#         con = get_db()
-#         cur = con.cursor()
-#         cur.execute("SELECT * FROM clients")
-#         rows = cur.fetchall()
-#         con.close()
-#
-#         result = []
-#         for r in rows:
-#             result.append({
-#                 "uuid": r[0],
-#                 "mac": r[1],
-#                 "hostname": r[2],
-#                 "timestamp": r[3],
-#                 "hardware": r[4],
-#                 "apps": r[5]
-#             })
-#
-#         return jsonify(result)
-#
-#     except Exception as e:
-#         app.logger.exception("Error in /api/clients")
-#         return jsonify({"status": "error", "msg": str(e)}), 500
-#
-#
-# # ----------------------------
-# # Startup
-# # ----------------------------
-# if __name__ == "__main__":
-#     init_db()
-#     port = int(os.environ.get("PORT", 5000))
-#     app.run(host="0.0.0.0", port=port)
+import os
+import sqlite3
+import logging
+from flask import Flask, request, jsonify, render_template
+
+app = Flask(__name__)
+logging.basicConfig(level=logging.INFO)
+
+DB_FILE = "dashboard.db"
+
+
+# ----------------------------
+# Database helpers
+# ----------------------------
+def get_db():
+    return sqlite3.connect(DB_FILE, check_same_thread=False)
+
+
+def init_db():
+    con = get_db()
+    cur = con.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS clients (
+            uuid TEXT PRIMARY KEY,
+            mac TEXT,
+            hostname TEXT,
+            timestamp TEXT,
+            hardware TEXT,
+            apps TEXT
+        )
+    """)
+    con.commit()
+    con.close()
+
+
+# ----------------------------
+# Routes
+# ----------------------------
+@app.route("/")
+def dashboard():
+    return render_template("dashboard.html")
+
+
+@app.route("/api/report", methods=["POST"])
+def api_report():
+    try:
+        data = request.get_json(force=True)
+
+        uuid_ = data.get("uuid")
+        mac = data.get("mac")
+        hostname = data.get("hostname")
+        timestamp = data.get("timestamp")
+        hardware = data.get("hardware")
+        apps = data.get("apps")
+
+        if not uuid_:
+            return jsonify({"status": "error", "msg": "Missing uuid"}), 400
+
+        con = get_db()
+        cur = con.cursor()
+
+        cur.execute("""
+            INSERT INTO clients (uuid, mac, hostname, timestamp, hardware, apps)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(uuid) DO UPDATE SET
+                mac=excluded.mac,
+                hostname=excluded.hostname,
+                timestamp=excluded.timestamp,
+                hardware=excluded.hardware,
+                apps=excluded.apps
+        """, (uuid_, mac, hostname, timestamp, hardware, apps))
+
+        con.commit()
+        con.close()
+
+        return jsonify({"status": "ok"})
+
+    except Exception as e:
+        app.logger.exception("Error in /api/report")
+        return jsonify({"status": "error", "msg": str(e)}), 500
+
+
+@app.route("/api/clients", methods=["GET"])
+def api_clients():
+    try:
+        con = get_db()
+        cur = con.cursor()
+        cur.execute("SELECT * FROM clients")
+        rows = cur.fetchall()
+        con.close()
+
+        result = []
+        for r in rows:
+            result.append({
+                "uuid": r[0],
+                "mac": r[1],
+                "hostname": r[2],
+                "timestamp": r[3],
+                "hardware": r[4],
+                "apps": r[5]
+            })
+
+        return jsonify(result)
+
+    except Exception as e:
+        app.logger.exception("Error in /api/clients")
+        return jsonify({"status": "error", "msg": str(e)}), 500
+
+
+# ----------------------------
+# Startup
+# ----------------------------
+if __name__ == "__main__":
+    init_db()
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
 
 
 
@@ -418,150 +418,3 @@
 
 
 # 2nd
-import os, psycopg2, datetime
-from flask import Flask, jsonify, request, render_template, send_file
-from io import BytesIO
-from reportlab.lib.pagesizes import A4
-from reportlab.pdfgen import canvas
-
-
-app = Flask(__name__)
-DATABASE_URL = os.environ.get("")
-
-def get_db():
-    return psycopg2.connect(DATABASE_URL, sslmode="require")
-
-def init_db():
-    con = get_db()
-    cur = con.cursor()
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS clients (
-        id SERIAL PRIMARY KEY,
-        uuid TEXT UNIQUE,
-        mac TEXT,
-        hostname TEXT,
-        ip TEXT,
-        last_seen TIMESTAMPTZ,
-        hardware TEXT,
-        apps TEXT
-    )
-    """)
-    con.commit()
-    con.close()
-
-@app.route("/")
-def index():
-    return render_template("dashboard.html")
-
-@app.route("/api/report", methods=["POST"])
-def api_report():
-    data = request.json
-    con = get_db()
-    cur = con.cursor()
-    now = datetime.datetime.now(datetime.UTC)
-
-    cur.execute("""
-    INSERT INTO clients (uuid, mac, hostname, ip, last_seen, hardware, apps)
-    VALUES (%s,%s,%s,%s,%s,%s,%s)
-    ON CONFLICT (uuid) DO UPDATE SET
-        mac=EXCLUDED.mac,
-        hostname=EXCLUDED.hostname,
-        ip=EXCLUDED.ip,
-        last_seen=EXCLUDED.last_seen,
-        hardware=EXCLUDED.hardware,
-        apps=EXCLUDED.apps
-    """, (
-        data["uuid"], data["mac"], data["hostname"],
-        request.remote_addr, now,
-        data["hardware"], data["apps"]
-    ))
-
-    con.commit()
-    con.close()
-    return jsonify({"status": "ok"})
-
-@app.route("/api/clients")
-def api_clients():
-    con = get_db()
-    cur = con.cursor()
-    cur.execute("SELECT uuid, hostname, ip, last_seen FROM clients")
-    rows = cur.fetchall()
-    now = datetime.datetime.now(datetime.UTC)
-    result = []
-
-    for uuid_, hostname, ip, last_seen in rows:
-        if last_seen:
-            delta = (now - last_seen).total_seconds()
-            status = "Online" if delta < 60 else "Offline"
-            last_seen_val = last_seen.isoformat()
-        else:
-            status = "Offline"
-            last_seen_val = None
-
-        result.append({
-            "uuid": uuid_,
-            "hostname": hostname,
-            "ip": ip,
-            "last_seen": last_seen_val,
-            "status": status
-        })
-
-    con.close()
-    return jsonify(result)
-
-@app.route("/api/client/<uuid>")
-def api_client(uuid):
-    con = get_db()
-    cur = con.cursor()
-    cur.execute("SELECT hostname, hardware, apps FROM clients WHERE uuid=%s", (uuid,))
-    row = cur.fetchone()
-    con.close()
-
-    if not row:
-        return jsonify({"error": "Not found"}), 404
-
-    hostname, hardware, apps = row
-    return jsonify({
-        "uuid": uuid,
-        "hostname": hostname,
-        "hardware": hardware.split("\n") if hardware else [],
-        "apps": apps.split("\n") if apps else []
-    })
-
-@app.route("/api/client/<uuid>/pdf")
-def client_pdf(uuid):
-    con = get_db()
-    cur = con.cursor()
-    cur.execute("SELECT hostname, hardware, apps FROM clients WHERE uuid=%s", (uuid,))
-    row = cur.fetchone()
-    con.close()
-
-    if not row:
-        return "Not found", 404
-
-    hostname, hardware, apps = row
-    buffer = BytesIO()
-    p = canvas.Canvas(buffer, pagesize=A4)
-    y = 800
-    p.drawString(50, y, f"Client Report: {hostname} ({uuid})")
-
-    y -= 30
-    p.drawString(50, y, "Hardware:")
-    for line in hardware.split("\n"):
-        y -= 15
-        p.drawString(60, y, line)
-
-    y -= 30
-    p.drawString(50, y, "Installed Apps:")
-    for line in apps.split("\n"):
-        y -= 15
-        p.drawString(60, y, line)
-
-    p.showPage()
-    p.save()
-    buffer.seek(0)
-    return send_file(buffer, as_attachment=True, download_name=f"{hostname}_report.pdf")
-
-if __name__ == "__main__":
-    init_db()
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
