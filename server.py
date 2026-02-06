@@ -421,13 +421,10 @@
 import os
 import psycopg2
 import datetime
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, jsonify, request, render_template
 
 app = Flask(__name__)
 
-# ==============================
-# Database
-# ==============================
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
 def get_db():
@@ -436,121 +433,113 @@ def get_db():
 def init_db():
     con = get_db()
     cur = con.cursor()
+
     cur.execute("""
     CREATE TABLE IF NOT EXISTS clients (
         id SERIAL PRIMARY KEY,
-        client_id TEXT UNIQUE,
+        uuid TEXT UNIQUE,
+        mac TEXT,
         hostname TEXT,
         ip TEXT,
         last_seen TIMESTAMPTZ,
         hardware TEXT,
         apps TEXT
-    );
+    )
     """)
+
     con.commit()
     con.close()
-
-# ==============================
-# Routes
-# ==============================
 
 @app.route("/")
 def index():
     return render_template("dashboard.html")
 
-
 @app.route("/api/report", methods=["POST"])
 def api_report():
-    data = request.get_json()
-
-    cid = data.get("uuid")
-    hostname = data.get("hostname")
-    ip = request.remote_addr
-    hardware = data.get("hardware")
-    apps = data.get("apps")
-    now = datetime.datetime.now(datetime.UTC)
+    data = request.json
 
     con = get_db()
     cur = con.cursor()
 
+    now = datetime.datetime.now(datetime.UTC)
+
     cur.execute("""
-    INSERT INTO clients (client_id, hostname, ip, last_seen, hardware, apps)
-    VALUES (%s, %s, %s, %s, %s, %s)
-    ON CONFLICT (client_id) DO UPDATE SET
+    INSERT INTO clients (uuid, mac, hostname, ip, last_seen, hardware, apps)
+    VALUES (%s,%s,%s,%s,%s,%s,%s)
+    ON CONFLICT (uuid) DO UPDATE SET
+        mac = EXCLUDED.mac,
         hostname = EXCLUDED.hostname,
         ip = EXCLUDED.ip,
         last_seen = EXCLUDED.last_seen,
         hardware = EXCLUDED.hardware,
-        apps = EXCLUDED.apps;
-    """, (cid, hostname, ip, now, hardware, apps))
+        apps = EXCLUDED.apps
+    """, (
+        data["uuid"],
+        data["mac"],
+        data["hostname"],
+        request.remote_addr,
+        now,
+        data["hardware"],
+        data["apps"]
+    ))
 
     con.commit()
     con.close()
 
     return jsonify({"status": "ok"})
 
-
-@app.route("/api/clients", methods=["GET"])
+@app.route("/api/clients")
 def api_clients():
     con = get_db()
     cur = con.cursor()
-    cur.execute("SELECT client_id, hostname, ip, last_seen FROM clients")
+
+    cur.execute("SELECT uuid, hostname, ip, last_seen FROM clients")
     rows = cur.fetchall()
-    con.close()
 
     now = datetime.datetime.now(datetime.UTC)
-    clients = []
+    result = []
 
-    for r in rows:
-        cid, hostname, ip, last_seen = r
-
-        # ✅ SAFE STATUS CHECK (fixes your crash)
-        if last_seen is None:
-            status = "Offline"
+    for uuid_, hostname, ip, last_seen in rows:
+        if last_seen:
+            delta = (now - last_seen).total_seconds()
+            status = "Online" if delta < 60 else "Offline"
+            last_seen_val = last_seen.isoformat()
         else:
-            try:
-                status = "Online" if (now - last_seen).total_seconds() < 60 else "Offline"
-            except:
-                status = "Offline"
+            status = "Offline"
+            last_seen_val = None
 
-        clients.append({
-            "uuid": cid,
+        result.append({
+            "uuid": uuid_,
             "hostname": hostname,
             "ip": ip,
-            "last_seen": last_seen.isoformat() if last_seen else None,
+            "last_seen": last_seen_val,
             "status": status
         })
 
-    return jsonify(clients)
+    con.close()
+    return jsonify(result)
 
-
-@app.route("/api/client/<cid>", methods=["GET"])
-def api_client_detail(cid):
+@app.route("/api/client/<uuid>")
+def api_client(uuid):
     con = get_db()
     cur = con.cursor()
-    cur.execute("""
-        SELECT client_id, hostname, ip, last_seen, hardware, apps
-        FROM clients WHERE client_id = %s
-    """, (cid,))
-    r = cur.fetchone()
+
+    cur.execute("SELECT hostname, hardware, apps FROM clients WHERE uuid=%s", (uuid,))
+    row = cur.fetchone()
     con.close()
 
-    if not r:
-        return jsonify({"error": "Client not found"}), 404
+    if not row:
+        return jsonify({"error": "Not found"}), 404
+
+    hostname, hardware, apps = row
 
     return jsonify({
-        "uuid": r[0],
-        "hostname": r[1],
-        "ip": r[2],
-        "last_seen": r[3].isoformat() if r[3] else None,
-        "hardware": r[4],
-        "apps": r[5]
+        "uuid": uuid,
+        "hostname": hostname,
+        "hardware": hardware.split("\n") if hardware else [],
+        "apps": apps.split("\n") if apps else []
     })
 
-
-# ==============================
-# Startup
-# ==============================
 if __name__ == "__main__":
     init_db()
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
