@@ -290,153 +290,119 @@
 # postgre
 
 
-import os, json, datetime, psycopg2, tempfile
-from flask import Flask, jsonify, render_template, send_file, request
-from reportlab.lib.pagesizes import A4
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
-from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.lib import colors
+import os
+import sqlite3
+import logging
+from flask import Flask, request, jsonify, render_template
 
-DATABASE_URL = os.environ.get("DATABASE_URL")
+app = Flask(__name__)
+logging.basicConfig(level=logging.INFO)
 
-app = Flask(__name__, template_folder="templates")
+DB_FILE = "dashboard.db"
 
-# ---------------- DATABASE ----------------
+
+# ----------------------------
+# Database helpers
+# ----------------------------
 def get_db():
-    return psycopg2.connect(DATABASE_URL, sslmode="require", connect_timeout=5)
+    return sqlite3.connect(DB_FILE, check_same_thread=False)
+
 
 def init_db():
     con = get_db()
     cur = con.cursor()
     cur.execute("""
-    CREATE TABLE IF NOT EXISTS clients (
-        client_uuid TEXT PRIMARY KEY,
-        mac_address TEXT,
-        hostname TEXT,
-        last_seen TEXT,
-        client_ip TEXT,
-        hardware_info TEXT,
-        installed_apps TEXT
-    )
+        CREATE TABLE IF NOT EXISTS clients (
+            uuid TEXT PRIMARY KEY,
+            mac TEXT,
+            hostname TEXT,
+            timestamp TEXT,
+            hardware TEXT,
+            apps TEXT
+        )
     """)
     con.commit()
     con.close()
 
-# ---------------- HELPERS ----------------
-def safe_json(v):
-    try:
-        return json.loads(v)
-    except:
-        return v.splitlines()
 
-def status_from_last_seen(ts):
-    try:
-        t = datetime.datetime.strptime(ts,"%Y-%m-%d %H:%M:%S")
-        return "Online" if (datetime.datetime.now()-t).seconds<=60 else "Offline"
-    except:
-        return "Offline"
-
-# ---------------- ROUTES ----------------
+# ----------------------------
+# Routes
+# ----------------------------
 @app.route("/")
 def dashboard():
     return render_template("dashboard.html")
 
+
 @app.route("/api/report", methods=["POST"])
 def api_report():
-    data = request.json
-    ip = request.remote_addr
+    try:
+        data = request.get_json(force=True)
 
-    con = get_db()
-    cur = con.cursor()
+        uuid_ = data.get("uuid")
+        mac = data.get("mac")
+        hostname = data.get("hostname")
+        timestamp = data.get("timestamp")
+        hardware = data.get("hardware")
+        apps = data.get("apps")
 
-    cur.execute("""
-    INSERT INTO clients VALUES (%s,%s,%s,%s,%s,%s,%s)
-    ON CONFLICT(client_uuid) DO UPDATE SET
-        mac_address=EXCLUDED.mac_address,
-        hostname=EXCLUDED.hostname,
-        last_seen=EXCLUDED.last_seen,
-        client_ip=EXCLUDED.client_ip,
-        hardware_info=EXCLUDED.hardware_info,
-        installed_apps=EXCLUDED.installed_apps
-    """, (
-        data["uuid"], data["mac"], data["hostname"],
-        data["timestamp"], ip, data["hardware"], data["apps"]
-    ))
+        if not uuid_:
+            return jsonify({"status": "error", "msg": "Missing uuid"}), 400
 
-    con.commit()
-    con.close()
-    return jsonify({"status": "ok"})
+        con = get_db()
+        cur = con.cursor()
 
-@app.route("/api/clients")
+        cur.execute("""
+            INSERT INTO clients (uuid, mac, hostname, timestamp, hardware, apps)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(uuid) DO UPDATE SET
+                mac=excluded.mac,
+                hostname=excluded.hostname,
+                timestamp=excluded.timestamp,
+                hardware=excluded.hardware,
+                apps=excluded.apps
+        """, (uuid_, mac, hostname, timestamp, hardware, apps))
+
+        con.commit()
+        con.close()
+
+        return jsonify({"status": "ok"})
+
+    except Exception as e:
+        app.logger.exception("Error in /api/report")
+        return jsonify({"status": "error", "msg": str(e)}), 500
+
+
+@app.route("/api/clients", methods=["GET"])
 def api_clients():
-    con = get_db()
-    cur = con.cursor()
-    cur.execute("SELECT * FROM clients")
-    rows = cur.fetchall()
-    con.close()
+    try:
+        con = get_db()
+        cur = con.cursor()
+        cur.execute("SELECT * FROM clients")
+        rows = cur.fetchall()
+        con.close()
 
-    return jsonify([{
-        "uuid":r[0],
-        "mac":r[1],
-        "hostname":r[2],
-        "last_seen":r[3],
-        "ip":r[4],
-        "status":status_from_last_seen(r[3])
-    } for r in rows])
+        result = []
+        for r in rows:
+            result.append({
+                "uuid": r[0],
+                "mac": r[1],
+                "hostname": r[2],
+                "timestamp": r[3],
+                "hardware": r[4],
+                "apps": r[5]
+            })
 
-@app.route("/api/client/<uuid>")
-def api_client(uuid):
-    con = get_db()
-    cur = con.cursor()
-    cur.execute("SELECT * FROM clients WHERE client_uuid=%s", (uuid,))
-    r = cur.fetchone()
-    con.close()
+        return jsonify(result)
 
-    return jsonify({
-        "uuid":r[0],
-        "mac":r[1],
-        "hostname":r[2],
-        "last_seen":r[3],
-        "ip":r[4],
-        "hardware":safe_json(r[5]),
-        "apps":safe_json(r[6])
-    })
+    except Exception as e:
+        app.logger.exception("Error in /api/clients")
+        return jsonify({"status": "error", "msg": str(e)}), 500
 
-@app.route("/export/pdf/<uuid>")
-def export_pdf(uuid):
-    con = get_db()
-    cur = con.cursor()
-    cur.execute("SELECT * FROM clients WHERE client_uuid=%s", (uuid,))
-    r = cur.fetchone()
-    con.close()
 
-    fd, path = tempfile.mkstemp(suffix=".pdf")
-    os.close(fd)
-
-    doc = SimpleDocTemplate(path, pagesize=A4)
-    styles = getSampleStyleSheet()
-    elements = []
-
-    elements.append(Paragraph("Client Report", styles["Title"]))
-    elements.append(Spacer(1, 12))
-
-    info = [["Field","Value"],
-            ["UUID",r[0]],["MAC",r[1]],["Hostname",r[2]],
-            ["Last Seen",r[3]],["IP",r[4]]]
-
-    t1 = Table(info, colWidths=[120,350])
-    t1.setStyle(TableStyle([
-        ('GRID',(0,0),(-1,-1),0.5,colors.black),
-        ('BACKGROUND',(0,0),(-1,0),colors.lightgrey)
-    ]))
-    elements.append(t1)
-
-    doc.build(elements)
-    return send_file(path, as_attachment=True,
-                     mimetype="application/pdf",
-                     download_name=f"{uuid}.pdf")
-
-# ---------------- RUN ----------------
+# ----------------------------
+# Startup
+# ----------------------------
 if __name__ == "__main__":
     init_db()
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
