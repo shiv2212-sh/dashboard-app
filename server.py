@@ -426,8 +426,10 @@ def export_pdf(uuid):
             ["Last Seen",r[3]],["IP",r[4]]]
 
     t1 = Table(info, colWidths=[120,350])
-    t1.setStyle(TableStyle([('GRID',(0,0),(-1,-1),0.5,colors.black),
-                            ('BACKGROUND',(0,0),(-1,0),colors.lightgrey)]))
+    t1.setStyle(TableStyle([
+        ('GRID',(0,0),(-1,-1),0.5,colors.black),
+        ('BACKGROUND',(0,0),(-1,0),colors.lightgrey)
+    ]))
     elements.append(t1)
 
     doc.build(elements)
