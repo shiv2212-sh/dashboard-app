@@ -417,14 +417,16 @@
 
 
 
-# 2ndimport os, psycopg2, datetime
+# 2nd
+import os, psycopg2, datetime
 from flask import Flask, jsonify, request, render_template, send_file
 from io import BytesIO
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 
+
 app = Flask(__name__)
-DATABASE_URL = os.environ.get("DATABASE_URL")
+DATABASE_URL = os.environ.get("")
 
 def get_db():
     return psycopg2.connect(DATABASE_URL, sslmode="require")
