@@ -245,34 +245,107 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>Dashboard</title>
+<meta charset="utf-8">
+<title>Client Dashboard</title>
 <style>
-body{font-family:Arial;background:#f4f4f4}
-.dark{background:#111;color:white}
-table{border-collapse:collapse;width:100%}
-td,th{border:1px solid #ccc;padding:6px}
-.online{color:green}.offline{color:red}
+:root{--bg:#fff;--text:#000;--table:#fff;--border:#ddd;--head:#f4f4f4}
+body.dark{--bg:#121212;--text:#eee;--table:#1e1e1e;--border:#333;--head:#2a2a2a}
+body{font-family:Arial;background:var(--bg);color:var(--text);padding:20px}
+table{width:100%;border-collapse:collapse;background:var(--table)}
+th,td{border:1px solid var(--border);padding:8px}
+th{background:var(--head)}
+.online{color:limegreen;font-weight:bold}
+.offline{color:crimson;font-weight:bold}
+button,input,select{padding:6px;margin:4px}
+.hidden{display:none}
 </style>
-<script>
-function toggle(){document.body.classList.toggle('dark')}
-</script>
 </head>
 <body>
-<h1>Dashboard</h1>
-<button onclick="toggle()">🌙 Dark</button>
-<a href="/export/csv">⬇ CSV</a>
+
+<h2>Client Dashboard</h2>
+<button onclick="toggleDark()">🌙 Dark</button>
+<input id="search" placeholder="Search UUID / Host" oninput="filter()">
+<select id="status" onchange="filter()">
+<option value="">All</option>
+<option>Online</option>
+<option>Offline</option>
+</select>
 
 <table>
-<tr><th>Status</th><th>UUID</th><th>Host</th><th>Last Seen</th><th>View</th></tr>
-{% for c in clients %}
-<tr>
-<td class="{{c.status|lower}}">{{c.status}}</td>
-<td>{{c.uuid}}</td>
-<td>{{c.hostname}}</td>
-<td>{{c.last_seen}}</td>
-<td><a href="/view/{{c.uuid}}">View</a></td>
-</tr>
-{% endfor %}
+<thead>
+<tr><th>Status</th><th>UUID</th><th>Host</th><th>IP</th><th>Last Seen</th><th>View</th></tr>
+</thead>
+<tbody id="body"></tbody>
 </table>
+
+<div id="details" class="hidden">
+<button onclick="goBack()">⬅ Back</button>
+<div id="info"></div>
+</div>
+
+<script>
+if(localStorage.getItem("theme")==="dark"){document.body.classList.add("dark")}
+
+function toggleDark(){
+ document.body.classList.toggle("dark")
+ localStorage.setItem("theme",document.body.classList.contains("dark")?"dark":"light")
+}
+
+let clients=[]
+
+async function load(){
+ const r=await fetch("/api/clients")
+ clients=await r.json()
+ render(clients)
+}
+
+function render(list){
+ body.innerHTML=""
+ list.forEach(c=>{
+ body.innerHTML+=`
+ <tr>
+ <td class="${c.status.toLowerCase()}">${c.status}</td>
+ <td>${c.uuid}</td>
+ <td>${c.hostname}</td>
+ <td>${c.ip}</td>
+ <td>${c.last_seen}</td>
+ <td><button onclick="view('${c.uuid}')">View</button></td>
+ </tr>`
+ })
+}
+
+function filter(){
+ let q=search.value.toLowerCase()
+ let s=status.value
+ render(clients.filter(c=>
+ (!s||c.status===s)&&
+ (c.uuid.toLowerCase().includes(q)||c.hostname.toLowerCase().includes(q))
+ ))
+}
+
+async function view(u){
+ const r=await fetch(`/api/client/${u}`)
+ const c=await r.json()
+ document.querySelector("table").classList.add("hidden")
+ details.classList.remove("hidden")
+
+ let hw="<ul>"+c.hardware.map(h=>`<li>${h}</li>`).join("")+"</ul>"
+ let apps=c.apps.map(a=>`<tr><td>${a.replaceAll("|","</td><td>")}</td></tr>`).join("")
+
+ info.innerHTML=`
+ <h3>Hardware</h3>${hw}
+ <h3>Applications</h3>
+ <table><tr><th>Name</th><th>Ver</th><th>Date</th><th>Size</th></tr>${apps}</table>
+ <br><a href="/export/pdf/${u}">⬇ Download PDF</a>
+ `
+}
+
+function goBack(){
+ details.classList.add("hidden")
+ document.querySelector("table").classList.remove("hidden")
+}
+
+load()
+</script>
 </body>
 </html>
