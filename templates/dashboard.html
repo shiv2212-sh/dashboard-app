@@ -1,3 +1,192 @@
+<!--<!DOCTYPE html>-->
+<!--<html>-->
+<!--<head>-->
+<!--<meta charset="utf-8">-->
+<!--<title>Client Dashboard</title>-->
+<!--<style>-->
+<!--:root{&#45;&#45;bg:#fff;&#45;&#45;text:#000;&#45;&#45;table:#fff;&#45;&#45;border:#ddd;&#45;&#45;head:#f4f4f4;&#45;&#45;btn:#e0e0e0}-->
+<!--body.dark{&#45;&#45;bg:#121212;&#45;&#45;text:#eee;&#45;&#45;table:#1e1e1e;&#45;&#45;border:#333;&#45;&#45;head:#2a2a2a;&#45;&#45;btn:#333}-->
+<!--body{font-family:Arial;padding:20px;background:var(&#45;&#45;bg);color:var(&#45;&#45;text)}-->
+<!--table{width:100%;border-collapse:collapse;background:var(&#45;&#45;table)}-->
+<!--th,td{border:1px solid var(&#45;&#45;border);padding:8px}-->
+<!--th{background:var(&#45;&#45;head)}-->
+<!--button,input,select{background:var(&#45;&#45;btn);color:var(&#45;&#45;text);border:1px solid var(&#45;&#45;border);padding:6px}-->
+<!--.hidden{display:none}-->
+<!--.online{color:limegreen;font-weight:bold}-->
+<!--.offline{color:crimson;font-weight:bold}-->
+<!--</style>-->
+<!--</head>-->
+<!--<body>-->
+
+<!--<h1>Dashboard</h1>-->
+<!--<button onclick="toggleDark()">🌙 Dark</button>-->
+<!--<button onclick="downloadCSV()">⬇ CSV</button>-->
+<!--<button onclick="exitApp()">❌ Exit</button>-->
+
+<!--&lt;!&ndash; HOME BUTTON ALWAYS VISIBLE &ndash;&gt;-->
+<!--<button onclick="goHome()">🏠 Home</button>-->
+
+<!--<div id="list">-->
+<!--<br>-->
+<!--<input id="search" placeholder="Search UUID / Hostname" oninput="filter()">-->
+<!--<select id="status" onchange="filter()">-->
+<!--<option value="">All</option>-->
+<!--<option>Online</option>-->
+<!--<option>Offline</option>-->
+<!--</select>-->
+<!--<button onclick="load()">🔄 Refresh</button>-->
+
+<!--<table>-->
+<!--<thead>-->
+<!--<tr>-->
+<!--<th>Status</th><th>UUID</th><th>Hostname</th><th>IP</th><th>Last Seen</th><th>View</th>-->
+<!--</tr>-->
+<!--</thead>-->
+<!--<tbody id="body"></tbody>-->
+<!--</table>-->
+<!--</div>-->
+
+<!--<div id="details" class="hidden">-->
+<!--<div id="navButtons">-->
+<!--<button onclick="goBack()">⬅ Back</button>-->
+<!--</div>-->
+<!--<div id="info"></div>-->
+<!--</div>-->
+
+<!--<script>-->
+<!--if(localStorage.getItem("theme")==="dark"){document.body.classList.add("dark")}-->
+
+<!--let pageStack=[]-->
+
+<!--function toggleDark(){-->
+<!-- document.body.classList.toggle("dark")-->
+<!-- localStorage.setItem("theme",document.body.classList.contains("dark")?"dark":"light")-->
+<!--}-->
+
+<!--async function load(){-->
+<!-- const r=await fetch("/api/clients")-->
+<!-- window.clients=await r.json()-->
+<!-- render(window.clients)-->
+<!--}-->
+
+<!--function render(list){-->
+<!-- body.innerHTML=""-->
+<!-- list.forEach(c=>{-->
+<!-- body.innerHTML+=`-->
+<!-- <tr>-->
+<!-- <td class="${c.status.toLowerCase()}">${c.status}</td>-->
+<!-- <td>${c.uuid}</td>-->
+<!-- <td>${c.hostname}</td>-->
+<!-- <td>${c.ip}</td>-->
+<!-- <td>${c.last_seen}</td>-->
+<!-- <td><button onclick="view('${c.uuid}')">View</button></td>-->
+<!-- </tr>`-->
+<!-- })-->
+<!--}-->
+
+<!--function filter(){-->
+<!-- let t=search.value.toLowerCase()-->
+<!-- let s=status.value-->
+<!-- render(window.clients.filter(c=>-->
+<!-- (!s||c.status===s)&&-->
+<!-- (c.uuid.toLowerCase().includes(t)||c.hostname.toLowerCase().includes(t))-->
+<!-- ))-->
+<!--}-->
+
+<!--async function view(u){-->
+<!-- pageStack.push(info.innerHTML)-->
+<!-- const r=await fetch(`/api/client/${u}`)-->
+<!-- const c=await r.json()-->
+
+<!-- list.classList.add("hidden")-->
+<!-- details.classList.remove("hidden")-->
+
+<!-- let hw="<ul>"+c.hardware.map(h=>`<li>${h}</li>`).join("")+"</ul>"-->
+
+<!-- window._apps=c.apps.map(a=>{-->
+<!-- let [p,v,d,s]=a.split("|")-->
+<!-- return {p,v,d,s}-->
+<!-- })-->
+
+<!-- let appRows=window._apps.map(a=>`-->
+<!-- <tr>-->
+<!-- <td>${a.p}</td><td>${a.v}</td><td>${a.d}</td><td>${a.s}</td>-->
+<!-- <td><button onclick="history('${a.p}')">History</button></td>-->
+<!-- </tr>`).join("")-->
+
+<!-- info.innerHTML=`-->
+<!-- <b>${c.hostname}</b><br>-->
+<!-- UUID: ${c.uuid}<br>-->
+<!-- <button onclick="pdf('${u}')">⬇ PDF</button>-->
+
+<!-- <h3>Hardware</h3>${hw}-->
+
+<!-- <input id="appSearch" placeholder="Search apps..." oninput="filterApps()">-->
+
+<!-- <h3>Applications</h3>-->
+<!-- <table>-->
+<!-- <tr><th>Name</th><th>Version</th><th>Date</th><th>Size</th><th>Changes</th></tr>-->
+<!-- <tbody id="appsBody">${appRows}</tbody>-->
+<!-- </table>-->
+<!-- `-->
+<!--}-->
+
+<!--function filterApps(){-->
+<!-- let q=appSearch.value.toLowerCase()-->
+<!-- let rows=window._apps.filter(a=>a.p.toLowerCase().includes(q))-->
+<!-- appsBody.innerHTML=rows.map(a=>`-->
+<!-- <tr>-->
+<!-- <td>${a.p}</td><td>${a.v}</td><td>${a.d}</td><td>${a.s}</td>-->
+<!-- <td><button onclick="history('${a.p}')">History</button></td>-->
+<!-- </tr>`).join("")-->
+<!--}-->
+
+<!--function history(app){-->
+<!-- pageStack.push(info.innerHTML)-->
+<!-- info.innerHTML=`-->
+<!-- <h2>Change History: ${app}</h2>-->
+<!-- <table>-->
+<!-- <tr><th>Time</th><th>Action</th><th>Detail</th></tr>-->
+<!-- <tr><td>Now</td><td>Installed</td><td>${app} detected</td></tr>-->
+<!-- </table>-->
+<!-- `-->
+<!--}-->
+
+<!--function goBack(){-->
+<!-- if(pageStack.length>0){-->
+<!--   info.innerHTML=pageStack.pop()-->
+<!-- }-->
+<!--}-->
+
+<!--function goHome(){-->
+<!-- pageStack=[]-->
+<!-- details.classList.add("hidden")-->
+<!-- list.classList.remove("hidden")-->
+<!--}-->
+
+<!--function downloadCSV(){location="/export/csv"}-->
+<!--function pdf(u){location=`/export/pdf/${u}`}-->
+<!--function exitApp(){fetch("/shutdown",{method:"POST"});setTimeout(()=>window.close(),300)}-->
+
+<!--load()-->
+<!--</script>-->
+<!--</body>-->
+<!--</html>-->
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 <!DOCTYPE html>
 <html>
 <head>
@@ -21,9 +210,6 @@ button,input,select{background:var(--btn);color:var(--text);border:1px solid var
 <h1>Dashboard</h1>
 <button onclick="toggleDark()">🌙 Dark</button>
 <button onclick="downloadCSV()">⬇ CSV</button>
-<button onclick="exitApp()">❌ Exit</button>
-
-<!-- HOME BUTTON ALWAYS VISIBLE -->
 <button onclick="goHome()">🏠 Home</button>
 
 <div id="list">
@@ -47,15 +233,12 @@ button,input,select{background:var(--btn);color:var(--text);border:1px solid var
 </div>
 
 <div id="details" class="hidden">
-<div id="navButtons">
 <button onclick="goBack()">⬅ Back</button>
-</div>
 <div id="info"></div>
 </div>
 
 <script>
 if(localStorage.getItem("theme")==="dark"){document.body.classList.add("dark")}
-
 let pageStack=[]
 
 function toggleDark(){
@@ -102,7 +285,6 @@ async function view(u){
  details.classList.remove("hidden")
 
  let hw="<ul>"+c.hardware.map(h=>`<li>${h}</li>`).join("")+"</ul>"
-
  window._apps=c.apps.map(a=>{
  let [p,v,d,s]=a.split("|")
  return {p,v,d,s}
@@ -111,13 +293,11 @@ async function view(u){
  let appRows=window._apps.map(a=>`
  <tr>
  <td>${a.p}</td><td>${a.v}</td><td>${a.d}</td><td>${a.s}</td>
- <td><button onclick="history('${a.p}')">History</button></td>
  </tr>`).join("")
 
  info.innerHTML=`
  <b>${c.hostname}</b><br>
  UUID: ${c.uuid}<br>
- <button onclick="pdf('${u}')">⬇ PDF</button>
 
  <h3>Hardware</h3>${hw}
 
@@ -125,7 +305,7 @@ async function view(u){
 
  <h3>Applications</h3>
  <table>
- <tr><th>Name</th><th>Version</th><th>Date</th><th>Size</th><th>Changes</th></tr>
+ <tr><th>Name</th><th>Version</th><th>Date</th><th>Size</th></tr>
  <tbody id="appsBody">${appRows}</tbody>
  </table>
  `
@@ -137,19 +317,7 @@ function filterApps(){
  appsBody.innerHTML=rows.map(a=>`
  <tr>
  <td>${a.p}</td><td>${a.v}</td><td>${a.d}</td><td>${a.s}</td>
- <td><button onclick="history('${a.p}')">History</button></td>
  </tr>`).join("")
-}
-
-function history(app){
- pageStack.push(info.innerHTML)
- info.innerHTML=`
- <h2>Change History: ${app}</h2>
- <table>
- <tr><th>Time</th><th>Action</th><th>Detail</th></tr>
- <tr><td>Now</td><td>Installed</td><td>${app} detected</td></tr>
- </table>
- `
 }
 
 function goBack(){
@@ -165,9 +333,6 @@ function goHome(){
 }
 
 function downloadCSV(){location="/export/csv"}
-function pdf(u){location=`/export/pdf/${u}`}
-function exitApp(){fetch("/shutdown",{method:"POST"});setTimeout(()=>window.close(),300)}
-
 load()
 </script>
 </body>
