@@ -288,6 +288,8 @@
 
 
 # postgre
+
+
 import os, json, datetime, psycopg2, tempfile
 from flask import Flask, jsonify, render_template, send_file, request
 from reportlab.lib.pagesizes import A4
@@ -301,12 +303,11 @@ app = Flask(__name__, template_folder="templates")
 
 # ---------------- DATABASE ----------------
 def get_db():
-    return psycopg2.connect(DATABASE_URL, sslmode="require")
+    return psycopg2.connect(DATABASE_URL, sslmode="require", connect_timeout=5)
 
 def init_db():
     con = get_db()
     cur = con.cursor()
-
     cur.execute("""
     CREATE TABLE IF NOT EXISTS clients (
         client_uuid TEXT PRIMARY KEY,
@@ -318,7 +319,6 @@ def init_db():
         installed_apps TEXT
     )
     """)
-
     con.commit()
     con.close()
 
@@ -365,7 +365,6 @@ def api_report():
 
     con.commit()
     con.close()
-
     return jsonify({"status": "ok"})
 
 @app.route("/api/clients")
