@@ -418,13 +418,16 @@
 
 
 # 2nd
-import os, psycopg2, datetime
-from flask import Flask, request, jsonify, render_template, send_file
-from io import BytesIO
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-from reportlab.lib.styles import getSampleStyleSheet
+import os
+import psycopg2
+import datetime
+from flask import Flask, request, jsonify, render_template
 
 app = Flask(__name__)
+
+# ==============================
+# Database
+# ==============================
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
 def get_db():
@@ -434,119 +437,120 @@ def init_db():
     con = get_db()
     cur = con.cursor()
     cur.execute("""
-    CREATE TABLE IF NOT EXISTS clients(
-        uuid TEXT PRIMARY KEY,
-        hostname TEXT,
-        mac TEXT,
-        ip TEXT,
-        last_seen TIMESTAMP,
-        hardware TEXT
-    )""")
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS apps(
+    CREATE TABLE IF NOT EXISTS clients (
         id SERIAL PRIMARY KEY,
-        client_uuid TEXT,
-        name TEXT,
-        version TEXT,
-        install_date TEXT,
-        size TEXT,
-        last_update TIMESTAMP
-    )""")
+        client_id TEXT UNIQUE,
+        hostname TEXT,
+        ip TEXT,
+        last_seen TIMESTAMPTZ,
+        hardware TEXT,
+        apps TEXT
+    );
+    """)
     con.commit()
     con.close()
+
+# ==============================
+# Routes
+# ==============================
 
 @app.route("/")
 def index():
     return render_template("dashboard.html")
 
+
 @app.route("/api/report", methods=["POST"])
-def report():
-    data = request.json
+def api_report():
+    data = request.get_json()
+
+    cid = data.get("uuid")
+    hostname = data.get("hostname")
+    ip = request.remote_addr
+    hardware = data.get("hardware")
+    apps = data.get("apps")
     now = datetime.datetime.now(datetime.UTC)
 
     con = get_db()
     cur = con.cursor()
 
     cur.execute("""
-    INSERT INTO clients VALUES(%s,%s,%s,%s,%s,%s)
-    ON CONFLICT(uuid) DO UPDATE SET
-      hostname=EXCLUDED.hostname,
-      mac=EXCLUDED.mac,
-      ip=EXCLUDED.ip,
-      last_seen=EXCLUDED.last_seen,
-      hardware=EXCLUDED.hardware
-    """, (data["uuid"], data["hostname"], data["mac"],
-          request.remote_addr, now, data["hardware"]))
-
-    cur.execute("DELETE FROM apps WHERE client_uuid=%s",(data["uuid"],))
-    for line in data["apps"].split("\n"):
-        name, ver, date, size = line.split("|")
-        cur.execute("""
-        INSERT INTO apps(client_uuid,name,version,install_date,size,last_update)
-        VALUES(%s,%s,%s,%s,%s,%s)
-        """, (data["uuid"], name, ver, date, size, now))
+    INSERT INTO clients (client_id, hostname, ip, last_seen, hardware, apps)
+    VALUES (%s, %s, %s, %s, %s, %s)
+    ON CONFLICT (client_id) DO UPDATE SET
+        hostname = EXCLUDED.hostname,
+        ip = EXCLUDED.ip,
+        last_seen = EXCLUDED.last_seen,
+        hardware = EXCLUDED.hardware,
+        apps = EXCLUDED.apps;
+    """, (cid, hostname, ip, now, hardware, apps))
 
     con.commit()
     con.close()
+
     return jsonify({"status": "ok"})
 
-@app.route("/api/clients")
+
+@app.route("/api/clients", methods=["GET"])
 def api_clients():
     con = get_db()
     cur = con.cursor()
-    cur.execute("SELECT uuid,hostname,ip,last_seen FROM clients")
+    cur.execute("SELECT client_id, hostname, ip, last_seen FROM clients")
     rows = cur.fetchall()
-    now = datetime.datetime.now(datetime.UTC)
+    con.close()
 
-    out = []
+    now = datetime.datetime.now(datetime.UTC)
+    clients = []
+
     for r in rows:
-        status = "Online" if (now - r[3]).total_seconds() < 60 else "Offline"
-        out.append({
-            "uuid": r[0],
-            "hostname": r[1],
-            "ip": r[2],
-            "last_seen": r[3].strftime("%Y-%m-%d %H:%M:%S"),
+        cid, hostname, ip, last_seen = r
+
+        # ✅ SAFE STATUS CHECK (fixes your crash)
+        if last_seen is None:
+            status = "Offline"
+        else:
+            try:
+                status = "Online" if (now - last_seen).total_seconds() < 60 else "Offline"
+            except:
+                status = "Offline"
+
+        clients.append({
+            "uuid": cid,
+            "hostname": hostname,
+            "ip": ip,
+            "last_seen": last_seen.isoformat() if last_seen else None,
             "status": status
         })
-    con.close()
-    return jsonify(out)
 
-@app.route("/api/client/<uuid>")
-def api_client(uuid):
+    return jsonify(clients)
+
+
+@app.route("/api/client/<cid>", methods=["GET"])
+def api_client_detail(cid):
     con = get_db()
     cur = con.cursor()
-    cur.execute("SELECT hardware FROM clients WHERE uuid=%s",(uuid,))
-    hw = cur.fetchone()[0].split("\n")
-
-    cur.execute("SELECT name,version,install_date,size FROM apps WHERE client_uuid=%s",(uuid,))
-    apps = ["|".join(map(str,a)) for a in cur.fetchall()]
+    cur.execute("""
+        SELECT client_id, hostname, ip, last_seen, hardware, apps
+        FROM clients WHERE client_id = %s
+    """, (cid,))
+    r = cur.fetchone()
     con.close()
 
-    return jsonify({"hardware":hw,"apps":apps})
+    if not r:
+        return jsonify({"error": "Client not found"}), 404
 
-@app.route("/export/pdf/<uuid>")
-def export_pdf(uuid):
-    con = get_db()
-    cur = con.cursor()
-    cur.execute("SELECT hostname,hardware FROM clients WHERE uuid=%s",(uuid,))
-    host, hw = cur.fetchone()
-    cur.execute("SELECT name,version,install_date,size FROM apps WHERE client_uuid=%s",(uuid,))
-    apps = cur.fetchall()
-    con.close()
+    return jsonify({
+        "uuid": r[0],
+        "hostname": r[1],
+        "ip": r[2],
+        "last_seen": r[3].isoformat() if r[3] else None,
+        "hardware": r[4],
+        "apps": r[5]
+    })
 
-    buf = BytesIO()
-    doc = SimpleDocTemplate(buf)
-    styles = getSampleStyleSheet()
-    story = [Paragraph(f"Client: {host}",styles["Heading1"]),Spacer(1,12)]
-    for h in hw.split("\n"):
-        story.append(Paragraph(h,styles["Normal"]))
-    story.append(Spacer(1,12))
-    for a in apps:
-        story.append(Paragraph(f"{a[0]} | {a[1]} | {a[2]} | {a[3]}",styles["Normal"]))
-    doc.build(story)
-    buf.seek(0)
-    return send_file(buf,download_name="report.pdf",as_attachment=True)
 
-if __name__=="__main__":
+# ==============================
+# Startup
+# ==============================
+if __name__ == "__main__":
     init_db()
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT",5000)))
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
