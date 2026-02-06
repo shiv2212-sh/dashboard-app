@@ -418,11 +418,10 @@
 
 
 # 2nd
-
-import os, datetime, psycopg2, csv
-from flask import Flask, render_template, request, jsonify, send_file, redirect, url_for
-from io import StringIO, BytesIO
-from reportlab.platypus import SimpleDocTemplate, Paragraph
+import os, psycopg2, datetime
+from flask import Flask, request, jsonify, render_template, send_file
+from io import BytesIO
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
 
 app = Flask(__name__)
@@ -435,122 +434,119 @@ def init_db():
     con = get_db()
     cur = con.cursor()
     cur.execute("""
-    CREATE TABLE IF NOT EXISTS clients (
+    CREATE TABLE IF NOT EXISTS clients(
         uuid TEXT PRIMARY KEY,
         hostname TEXT,
+        mac TEXT,
         ip TEXT,
-        os TEXT,
-        cpu TEXT,
-        ram TEXT,
-        disk TEXT,
-        hardware TEXT,
-        apps TEXT,
-        last_seen TIMESTAMP
-    );
-    """)
+        last_seen TIMESTAMP,
+        hardware TEXT
+    )""")
     cur.execute("""
-    CREATE TABLE IF NOT EXISTS history (
-        uuid TEXT,
-        seen_at TIMESTAMP
-    );
-    """)
+    CREATE TABLE IF NOT EXISTS apps(
+        id SERIAL PRIMARY KEY,
+        client_uuid TEXT,
+        name TEXT,
+        version TEXT,
+        install_date TEXT,
+        size TEXT,
+        last_update TIMESTAMP
+    )""")
     con.commit()
     con.close()
 
 @app.route("/")
 def index():
-    con = get_db()
-    cur = con.cursor()
-    cur.execute("SELECT * FROM clients ORDER BY last_seen DESC")
-    rows = cur.fetchall()
-    con.close()
-
-    now = datetime.datetime.utcnow()
-    clients = []
-    for r in rows:
-        status = "Online" if (now - r[9]).seconds < 60 else "Offline"
-        clients.append({
-            "uuid": r[0], "hostname": r[1], "ip": r[2],
-            "hardware": r[7], "apps": r[8],
-            "last_seen": r[9], "status": status
-        })
-
-    return render_template("dashboard.html", clients=clients)
+    return render_template("dashboard.html")
 
 @app.route("/api/report", methods=["POST"])
 def report():
     data = request.json
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now(datetime.UTC)
+
     con = get_db()
     cur = con.cursor()
 
     cur.execute("""
-    INSERT INTO clients VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+    INSERT INTO clients VALUES(%s,%s,%s,%s,%s,%s)
     ON CONFLICT(uuid) DO UPDATE SET
-      hostname=EXCLUDED.hostname, ip=EXCLUDED.ip, os=EXCLUDED.os,
-      cpu=EXCLUDED.cpu, ram=EXCLUDED.ram, disk=EXCLUDED.disk,
-      hardware=EXCLUDED.hardware, apps=EXCLUDED.apps,
-      last_seen=EXCLUDED.last_seen;
-    """,(data["uuid"],data["hostname"],request.remote_addr,data["os"],
-         data["cpu"],data["ram"],data["disk"],
-         data["hardware"],data["apps"],now))
+      hostname=EXCLUDED.hostname,
+      mac=EXCLUDED.mac,
+      ip=EXCLUDED.ip,
+      last_seen=EXCLUDED.last_seen,
+      hardware=EXCLUDED.hardware
+    """, (data["uuid"], data["hostname"], data["mac"],
+          request.remote_addr, now, data["hardware"]))
 
-    cur.execute("INSERT INTO history VALUES (%s,%s)",(data["uuid"],now))
+    cur.execute("DELETE FROM apps WHERE client_uuid=%s",(data["uuid"],))
+    for line in data["apps"].split("\n"):
+        name, ver, date, size = line.split("|")
+        cur.execute("""
+        INSERT INTO apps(client_uuid,name,version,install_date,size,last_update)
+        VALUES(%s,%s,%s,%s,%s,%s)
+        """, (data["uuid"], name, ver, date, size, now))
+
     con.commit()
     con.close()
-    return jsonify({"status":"ok"})
+    return jsonify({"status": "ok"})
 
-@app.route("/view/<uuid>")
-def view(uuid):
+@app.route("/api/clients")
+def api_clients():
     con = get_db()
     cur = con.cursor()
-    cur.execute("SELECT * FROM clients WHERE uuid=%s",(uuid,))
-    r = cur.fetchone()
-    con.close()
-    return render_template("view.html", c=r)
-
-@app.route("/export/csv")
-def export_csv():
-    con = get_db()
-    cur = con.cursor()
-    cur.execute("SELECT * FROM clients")
+    cur.execute("SELECT uuid,hostname,ip,last_seen FROM clients")
     rows = cur.fetchall()
+    now = datetime.datetime.now(datetime.UTC)
+
+    out = []
+    for r in rows:
+        status = "Online" if (now - r[3]).total_seconds() < 60 else "Offline"
+        out.append({
+            "uuid": r[0],
+            "hostname": r[1],
+            "ip": r[2],
+            "last_seen": r[3].strftime("%Y-%m-%d %H:%M:%S"),
+            "status": status
+        })
+    con.close()
+    return jsonify(out)
+
+@app.route("/api/client/<uuid>")
+def api_client(uuid):
+    con = get_db()
+    cur = con.cursor()
+    cur.execute("SELECT hardware FROM clients WHERE uuid=%s",(uuid,))
+    hw = cur.fetchone()[0].split("\n")
+
+    cur.execute("SELECT name,version,install_date,size FROM apps WHERE client_uuid=%s",(uuid,))
+    apps = ["|".join(map(str,a)) for a in cur.fetchall()]
     con.close()
 
-    out = StringIO()
-    w = csv.writer(out)
-    w.writerow(["UUID","Host","IP","OS","CPU","RAM","Disk","Last Seen"])
-    for r in rows:
-        w.writerow([r[0],r[1],r[2],r[3],r[4],r[5],r[6],r[9]])
-
-    return send_file(BytesIO(out.getvalue().encode()),
-                     as_attachment=True,
-                     download_name="clients.csv",
-                     mimetype="text/csv")
+    return jsonify({"hardware":hw,"apps":apps})
 
 @app.route("/export/pdf/<uuid>")
 def export_pdf(uuid):
     con = get_db()
     cur = con.cursor()
-    cur.execute("SELECT * FROM clients WHERE uuid=%s",(uuid,))
-    r = cur.fetchone()
+    cur.execute("SELECT hostname,hardware FROM clients WHERE uuid=%s",(uuid,))
+    host, hw = cur.fetchone()
+    cur.execute("SELECT name,version,install_date,size FROM apps WHERE client_uuid=%s",(uuid,))
+    apps = cur.fetchall()
     con.close()
 
     buf = BytesIO()
     doc = SimpleDocTemplate(buf)
     styles = getSampleStyleSheet()
-    story = []
-
-    labels = ["UUID","Host","IP","OS","CPU","RAM","Disk","Last Seen"]
-    vals = [r[0],r[1],r[2],r[3],r[4],r[5],r[6],r[9]]
-
-    for l,v in zip(labels,vals):
-        story.append(Paragraph(f"<b>{l}:</b> {v}", styles["Normal"]))
-
+    story = [Paragraph(f"Client: {host}",styles["Heading1"]),Spacer(1,12)]
+    for h in hw.split("\n"):
+        story.append(Paragraph(h,styles["Normal"]))
+    story.append(Spacer(1,12))
+    for a in apps:
+        story.append(Paragraph(f"{a[0]} | {a[1]} | {a[2]} | {a[3]}",styles["Normal"]))
     doc.build(story)
     buf.seek(0)
-    return send_file(buf,as_attachment=True,download_name="client.pdf")
+    return send_file(buf,download_name="report.pdf",as_attachment=True)
 
-if __name__ == "__main__":
+if __name__=="__main__":
     init_db()
-    app.run()
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT",5000)))
