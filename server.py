@@ -419,15 +419,14 @@
 
 # 2nd
 
-import os, psycopg2, datetime, tempfile
-from flask import Flask, jsonify, render_template, request, send_file
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
-from reportlab.lib.pagesizes import A4
-from reportlab.lib import colors
+import os, datetime, psycopg2, csv
+from flask import Flask, render_template, request, jsonify, send_file, redirect, url_for
+from io import StringIO, BytesIO
+from reportlab.platypus import SimpleDocTemplate, Paragraph
 from reportlab.lib.styles import getSampleStyleSheet
 
+app = Flask(__name__)
 DATABASE_URL = os.environ.get("DATABASE_URL")
-app = Flask(__name__, template_folder="templates")
 
 def get_db():
     return psycopg2.connect(DATABASE_URL, sslmode="require")
@@ -435,117 +434,123 @@ def get_db():
 def init_db():
     con = get_db()
     cur = con.cursor()
-
     cur.execute("""
     CREATE TABLE IF NOT EXISTS clients (
-        client_uuid TEXT PRIMARY KEY,
-        mac_address TEXT,
+        uuid TEXT PRIMARY KEY,
         hostname TEXT,
-        last_seen TEXT,
-        client_ip TEXT,
-        hardware_info TEXT,
-        installed_apps TEXT
-    )""")
-
+        ip TEXT,
+        os TEXT,
+        cpu TEXT,
+        ram TEXT,
+        disk TEXT,
+        hardware TEXT,
+        apps TEXT,
+        last_seen TIMESTAMP
+    );
+    """)
     cur.execute("""
-    CREATE TABLE IF NOT EXISTS app_history (
-        client_uuid TEXT,
-        app_name TEXT,
-        version TEXT,
-        status TEXT,
-        time TEXT
-    )""")
-
+    CREATE TABLE IF NOT EXISTS history (
+        uuid TEXT,
+        seen_at TIMESTAMP
+    );
+    """)
     con.commit()
     con.close()
 
 @app.route("/")
-def dashboard():
-    return render_template("dashboard.html")
+def index():
+    con = get_db()
+    cur = con.cursor()
+    cur.execute("SELECT * FROM clients ORDER BY last_seen DESC")
+    rows = cur.fetchall()
+    con.close()
+
+    now = datetime.datetime.utcnow()
+    clients = []
+    for r in rows:
+        status = "Online" if (now - r[9]).seconds < 60 else "Offline"
+        clients.append({
+            "uuid": r[0], "hostname": r[1], "ip": r[2],
+            "hardware": r[7], "apps": r[8],
+            "last_seen": r[9], "status": status
+        })
+
+    return render_template("dashboard.html", clients=clients)
 
 @app.route("/api/report", methods=["POST"])
-def api_report():
+def report():
     data = request.json
-    ip = request.remote_addr
+    now = datetime.datetime.utcnow()
     con = get_db()
     cur = con.cursor()
 
     cur.execute("""
-    INSERT INTO clients VALUES (%s,%s,%s,%s,%s,%s,%s)
-    ON CONFLICT(client_uuid) DO UPDATE SET
-        mac_address=EXCLUDED.mac_address,
-        hostname=EXCLUDED.hostname,
-        last_seen=EXCLUDED.last_seen,
-        client_ip=EXCLUDED.client_ip,
-        hardware_info=EXCLUDED.hardware_info,
-        installed_apps=EXCLUDED.installed_apps
-    """, (data["uuid"], data["mac"], data["hostname"],
-          data["timestamp"], ip, data["hardware"], data["apps"]))
+    INSERT INTO clients VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+    ON CONFLICT(uuid) DO UPDATE SET
+      hostname=EXCLUDED.hostname, ip=EXCLUDED.ip, os=EXCLUDED.os,
+      cpu=EXCLUDED.cpu, ram=EXCLUDED.ram, disk=EXCLUDED.disk,
+      hardware=EXCLUDED.hardware, apps=EXCLUDED.apps,
+      last_seen=EXCLUDED.last_seen;
+    """,(data["uuid"],data["hostname"],request.remote_addr,data["os"],
+         data["cpu"],data["ram"],data["disk"],
+         data["hardware"],data["apps"],now))
 
-    for line in data["apps"].splitlines():
-        if "|" in line:
-            name, version, date, size = line.split("|",3)
-            cur.execute("INSERT INTO app_history VALUES (%s,%s,%s,%s,%s)",
-                        (data["uuid"], name, version, "Installed", data["timestamp"]))
-
+    cur.execute("INSERT INTO history VALUES (%s,%s)",(data["uuid"],now))
     con.commit()
     con.close()
     return jsonify({"status":"ok"})
 
-@app.route("/api/clients")
-def api_clients():
+@app.route("/view/<uuid>")
+def view(uuid):
+    con = get_db()
+    cur = con.cursor()
+    cur.execute("SELECT * FROM clients WHERE uuid=%s",(uuid,))
+    r = cur.fetchone()
+    con.close()
+    return render_template("view.html", c=r)
+
+@app.route("/export/csv")
+def export_csv():
     con = get_db()
     cur = con.cursor()
     cur.execute("SELECT * FROM clients")
     rows = cur.fetchall()
     con.close()
 
-    now = datetime.datetime.now()
-    out=[]
+    out = StringIO()
+    w = csv.writer(out)
+    w.writerow(["UUID","Host","IP","OS","CPU","RAM","Disk","Last Seen"])
     for r in rows:
-        t=datetime.datetime.strptime(r[3],"%Y-%m-%d %H:%M:%S")
-        status="Online" if (now-t).seconds<=90 else "Offline"
-        out.append({"uuid":r[0],"mac":r[1],"hostname":r[2],
-                    "last_seen":r[3],"ip":r[4],"status":status})
-    return jsonify(out)
+        w.writerow([r[0],r[1],r[2],r[3],r[4],r[5],r[6],r[9]])
 
-@app.route("/api/client/<uuid>")
-def api_client(uuid):
-    con = get_db()
-    cur = con.cursor()
-    cur.execute("SELECT * FROM clients WHERE client_uuid=%s",(uuid,))
-    r=cur.fetchone()
-    con.close()
-
-    return jsonify({
-        "uuid":r[0],"mac":r[1],"hostname":r[2],
-        "last_seen":r[3],"ip":r[4],
-        "hardware":r[5].split("\n"),
-        "apps":r[6].split("\n")
-    })
+    return send_file(BytesIO(out.getvalue().encode()),
+                     as_attachment=True,
+                     download_name="clients.csv",
+                     mimetype="text/csv")
 
 @app.route("/export/pdf/<uuid>")
 def export_pdf(uuid):
     con = get_db()
     cur = con.cursor()
-    cur.execute("SELECT * FROM clients WHERE client_uuid=%s",(uuid,))
-    r=cur.fetchone()
+    cur.execute("SELECT * FROM clients WHERE uuid=%s",(uuid,))
+    r = cur.fetchone()
     con.close()
 
-    fd,path=tempfile.mkstemp(".pdf"); os.close(fd)
-    doc=SimpleDocTemplate(path,pagesize=A4)
-    styles=getSampleStyleSheet()
-    elems=[Paragraph("Client Report",styles["Title"]),Spacer(1,12)]
+    buf = BytesIO()
+    doc = SimpleDocTemplate(buf)
+    styles = getSampleStyleSheet()
+    story = []
 
-    info=[["Field","Value"],["UUID",r[0]],["Hostname",r[2]],["IP",r[4]],["Last Seen",r[3]]]
-    t=Table(info,colWidths=[120,350])
-    t.setStyle(TableStyle([("GRID",(0,0),(-1,-1),0.5,colors.black),
-                           ("BACKGROUND",(0,0),(-1,0),colors.lightgrey)]))
-    elems.append(t)
+    labels = ["UUID","Host","IP","OS","CPU","RAM","Disk","Last Seen"]
+    vals = [r[0],r[1],r[2],r[3],r[4],r[5],r[6],r[9]]
 
-    doc.build(elems)
-    return send_file(path,as_attachment=True,download_name=f"{uuid}.pdf")
+    for l,v in zip(labels,vals):
+        story.append(Paragraph(f"<b>{l}:</b> {v}", styles["Normal"]))
 
-if __name__=="__main__":
+    doc.build(story)
+    buf.seek(0)
+    return send_file(buf,as_attachment=True,download_name="client.pdf")
+
+if __name__ == "__main__":
     init_db()
-    app.run(host="0.0.0.0",port=int(os.environ.get("PORT",5000)))
+    app.run()

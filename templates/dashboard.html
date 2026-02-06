@@ -187,58 +187,92 @@
 
 
 
+<!--<!DOCTYPE html>-->
+<!--<html>-->
+<!--<head>-->
+<!--<meta charset="utf-8">-->
+<!--<title>Dashboard</title>-->
+<!--<style>-->
+<!--:root{&#45;&#45;bg:#fff;&#45;&#45;text:#000}-->
+<!--body.dark{&#45;&#45;bg:#121212;&#45;&#45;text:#eee}-->
+<!--body{background:var(&#45;&#45;bg);color:var(&#45;&#45;text);font-family:Arial}-->
+<!--</style>-->
+<!--</head>-->
+<!--<body>-->
+<!--<h1>Dashboard</h1>-->
+<!--<button onclick="toggle()">🌙</button>-->
+<!--<table border="1" width="100%">-->
+<!--<thead><tr><th>Status</th><th>UUID</th><th>Host</th><th>Last</th><th>View</th></tr></thead>-->
+<!--<tbody id="b"></tbody></table>-->
+
+<!--<div id="d" style="display:none">-->
+<!--<button onclick="home()">⬅ Back</button>-->
+<!--<div id="info"></div>-->
+<!--</div>-->
+
+<!--<script>-->
+<!--if(localStorage.theme=="dark")document.body.classList.add("dark")-->
+<!--function toggle(){document.body.classList.toggle("dark");localStorage.theme=document.body.classList.contains("dark")?"dark":"light"}-->
+<!--async function load(){-->
+<!-- let r=await fetch("/api/clients"); let j=await r.json()-->
+<!-- b.innerHTML=j.map(c=>`<tr><td>${c.status}</td><td>${c.uuid}</td><td>${c.hostname}</td><td>${c.last_seen}</td><td><button onclick="v('${c.uuid}')">View</button></td></tr>`).join("")-->
+<!--}-->
+<!--async function v(u){-->
+<!-- let r=await fetch("/api/client/"+u); let c=await r.json()-->
+<!-- d.style.display="block"; b.parentNode.style.display="none"-->
+<!-- info.innerHTML=`<h3>${c.hostname}</h3><pre>${c.hardware.join("\n")}</pre>-->
+<!-- <button onclick="location='/export/pdf/${u}'">⬇ PDF</button>`-->
+<!--}-->
+<!--function home(){d.style.display="none";b.parentNode.style.display="table"}-->
+<!--load()-->
+<!--</script>-->
+<!--</body>-->
+<!--</html>-->
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 <!DOCTYPE html>
 <html>
 <head>
-<meta charset="utf-8">
-<title>Client Dashboard</title>
+<title>Dashboard</title>
 <style>
-body{font-family:Arial;padding:20px}
-.hidden{display:none}
-.online{color:green;font-weight:bold}
-.offline{color:red;font-weight:bold}
+body{font-family:Arial;background:#f4f4f4}
+.dark{background:#111;color:white}
+table{border-collapse:collapse;width:100%}
+td,th{border:1px solid #ccc;padding:6px}
+.online{color:green}.offline{color:red}
 </style>
+<script>
+function toggle(){document.body.classList.toggle('dark')}
+</script>
 </head>
 <body>
 <h1>Dashboard</h1>
-<button onclick="goHome()">🏠 Home</button>
-<table border="1">
-<thead><tr><th>Status</th><th>UUID</th><th>Host</th><th>IP</th><th>Last Seen</th><th>View</th></tr></thead>
-<tbody id="body"></tbody>
+<button onclick="toggle()">🌙 Dark</button>
+<a href="/export/csv">⬇ CSV</a>
+
+<table>
+<tr><th>Status</th><th>UUID</th><th>Host</th><th>Last Seen</th><th>View</th></tr>
+{% for c in clients %}
+<tr>
+<td class="{{c.status|lower}}">{{c.status}}</td>
+<td>{{c.uuid}}</td>
+<td>{{c.hostname}}</td>
+<td>{{c.last_seen}}</td>
+<td><a href="/view/{{c.uuid}}">View</a></td>
+</tr>
+{% endfor %}
 </table>
-
-<div id="details" class="hidden">
-<button onclick="goHome()">⬅ Back</button>
-<div id="info"></div>
-</div>
-
-<script>
-async function load(){
- let r=await fetch("/api/clients");
- let d=await r.json();
- body.innerHTML=d.map(c=>`
- <tr>
- <td class="${c.status.toLowerCase()}">${c.status}</td>
- <td>${c.uuid}</td><td>${c.hostname}</td><td>${c.ip}</td>
- <td>${c.last_seen}</td>
- <td><button onclick="view('${c.uuid}')">View</button></td>
- </tr>`).join("")
-}
-async function view(u){
- let r=await fetch("/api/client/"+u)
- let c=await r.json()
- body.parentElement.classList.add("hidden")
- details.classList.remove("hidden")
- info.innerHTML=`<h3>${c.hostname}</h3>
- <button onclick="pdf('${u}')">⬇ PDF</button>
- <ul>${c.hardware.map(h=>"<li>"+h+"</li>").join("")}</ul>`
-}
-function goHome(){
- details.classList.add("hidden")
- body.parentElement.classList.remove("hidden")
-}
-function pdf(u){location="/export/pdf/"+u}
-load()
-</script>
 </body>
 </html>

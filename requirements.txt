@@ -1,4 +1,5 @@
 flask
-waitress
 psycopg2-binary
+requests
+psutil
 reportlab
