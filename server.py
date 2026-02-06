@@ -417,14 +417,13 @@
 
 
 
-# 2nd
-import os
-import psycopg2
-import datetime
-from flask import Flask, jsonify, request, render_template
+# 2ndimport os, psycopg2, datetime
+from flask import Flask, jsonify, request, render_template, send_file
+from io import BytesIO
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
 
 app = Flask(__name__)
-
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
 def get_db():
@@ -433,7 +432,6 @@ def get_db():
 def init_db():
     con = get_db()
     cur = con.cursor()
-
     cur.execute("""
     CREATE TABLE IF NOT EXISTS clients (
         id SERIAL PRIMARY KEY,
@@ -446,7 +444,6 @@ def init_db():
         apps TEXT
     )
     """)
-
     con.commit()
     con.close()
 
@@ -457,45 +454,36 @@ def index():
 @app.route("/api/report", methods=["POST"])
 def api_report():
     data = request.json
-
     con = get_db()
     cur = con.cursor()
-
     now = datetime.datetime.now(datetime.UTC)
 
     cur.execute("""
     INSERT INTO clients (uuid, mac, hostname, ip, last_seen, hardware, apps)
     VALUES (%s,%s,%s,%s,%s,%s,%s)
     ON CONFLICT (uuid) DO UPDATE SET
-        mac = EXCLUDED.mac,
-        hostname = EXCLUDED.hostname,
-        ip = EXCLUDED.ip,
-        last_seen = EXCLUDED.last_seen,
-        hardware = EXCLUDED.hardware,
-        apps = EXCLUDED.apps
+        mac=EXCLUDED.mac,
+        hostname=EXCLUDED.hostname,
+        ip=EXCLUDED.ip,
+        last_seen=EXCLUDED.last_seen,
+        hardware=EXCLUDED.hardware,
+        apps=EXCLUDED.apps
     """, (
-        data["uuid"],
-        data["mac"],
-        data["hostname"],
-        request.remote_addr,
-        now,
-        data["hardware"],
-        data["apps"]
+        data["uuid"], data["mac"], data["hostname"],
+        request.remote_addr, now,
+        data["hardware"], data["apps"]
     ))
 
     con.commit()
     con.close()
-
     return jsonify({"status": "ok"})
 
 @app.route("/api/clients")
 def api_clients():
     con = get_db()
     cur = con.cursor()
-
     cur.execute("SELECT uuid, hostname, ip, last_seen FROM clients")
     rows = cur.fetchall()
-
     now = datetime.datetime.now(datetime.UTC)
     result = []
 
@@ -523,7 +511,6 @@ def api_clients():
 def api_client(uuid):
     con = get_db()
     cur = con.cursor()
-
     cur.execute("SELECT hostname, hardware, apps FROM clients WHERE uuid=%s", (uuid,))
     row = cur.fetchone()
     con.close()
@@ -532,13 +519,46 @@ def api_client(uuid):
         return jsonify({"error": "Not found"}), 404
 
     hostname, hardware, apps = row
-
     return jsonify({
         "uuid": uuid,
         "hostname": hostname,
         "hardware": hardware.split("\n") if hardware else [],
         "apps": apps.split("\n") if apps else []
     })
+
+@app.route("/api/client/<uuid>/pdf")
+def client_pdf(uuid):
+    con = get_db()
+    cur = con.cursor()
+    cur.execute("SELECT hostname, hardware, apps FROM clients WHERE uuid=%s", (uuid,))
+    row = cur.fetchone()
+    con.close()
+
+    if not row:
+        return "Not found", 404
+
+    hostname, hardware, apps = row
+    buffer = BytesIO()
+    p = canvas.Canvas(buffer, pagesize=A4)
+    y = 800
+    p.drawString(50, y, f"Client Report: {hostname} ({uuid})")
+
+    y -= 30
+    p.drawString(50, y, "Hardware:")
+    for line in hardware.split("\n"):
+        y -= 15
+        p.drawString(60, y, line)
+
+    y -= 30
+    p.drawString(50, y, "Installed Apps:")
+    for line in apps.split("\n"):
+        y -= 15
+        p.drawString(60, y, line)
+
+    p.showPage()
+    p.save()
+    buffer.seek(0)
+    return send_file(buffer, as_attachment=True, download_name=f"{hostname}_report.pdf")
 
 if __name__ == "__main__":
     init_db()
