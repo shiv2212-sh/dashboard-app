@@ -1,5 +1,3 @@
-flask
+Flask
 psycopg2-binary
-requests
-psutil
 reportlab
