@@ -807,6 +807,10 @@ from reportlab.lib import colors
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
 app = Flask(__name__, template_folder="templates")
+@app.route("/ping")
+def ping():
+    return "SERVER IS RUNNING", 200
+
 
 # ---------------- DATABASE ----------------
 def get_db():
