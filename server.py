@@ -1038,7 +1038,7 @@ DATABASE_URL = os.environ.get("DATABASE_URL")
 
 app = Flask(__name__, template_folder="templates")
 
-# ---------------- TEST ROUTE ----------------
+# ---------------- HEALTH CHECK ----------------
 @app.route("/ping")
 def ping():
     return "SERVER IS RUNNING", 200
@@ -1065,6 +1065,9 @@ def init_db():
 
     con.commit()
     con.close()
+
+# Run DB init immediately on load (IMPORTANT for Render)
+init_db()
 
 # ---------------- HELPERS ----------------
 def safe_json(v):
@@ -1219,6 +1222,4 @@ def export_csv():
 
 # ---------------- RUN ----------------
 if __name__ == "__main__":
-    init_db()
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
-
